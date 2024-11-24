@@ -5,9 +5,16 @@ import (
 	"fullcycle-auction_go/configuration/logger"
 	"fullcycle-auction_go/internal/entity/auction_entity"
 	"fullcycle-auction_go/internal/internal_error"
+	"go.mongodb.org/mongo-driver/bson"
+	"log"
+	"os"
+	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
+
+var mutex sync.Mutex // Mutex para evitar condições de corrida
 
 type AuctionEntityMongo struct {
 	Id          string                          `bson:"_id"`
@@ -45,6 +52,31 @@ func (ar *AuctionRepository) CreateAuction(
 		logger.Error("Error trying to insert auction", err)
 		return internal_error.NewInternalServerError("Error trying to insert auction")
 	}
+	ar.startAuctionExpiryCheck(ctx, auctionEntity.Id)
 
 	return nil
+}
+
+// Função para iniciar a verificação de expiração dos leilões
+func (ar *AuctionRepository) startAuctionExpiryCheck(ctx context.Context, auctionID string) {
+	auctionDuration := os.Getenv("AUCTION_DURATION")
+	duration, err := time.ParseDuration(auctionDuration)
+	if err != nil {
+		duration = time.Minute * 5
+	}
+
+	go func() {
+		timer := time.NewTimer(duration)
+		<-timer.C
+
+		// Bloqueio para evitar condições de corrida
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		// Fechar o leilão se o tempo expirou
+		_, err := ar.Collection.UpdateOne(ctx, bson.M{"_id": auctionID}, bson.M{"$set": bson.M{"status": auction_entity.Closed}})
+		if err != nil {
+			log.Printf("Erro ao fechar o leilão %d: %v", auctionID, err)
+		}
+	}()
 }
