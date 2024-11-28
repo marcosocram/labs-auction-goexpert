@@ -9,7 +9,8 @@ Este projeto é um sistema de leilão desenvolvido em Go. Ele permite criar leil
    * Calcula o tempo restante para cada leilão ativo com base na variável de ambiente AUCTION_DURATION.
    * Usa uma go routine para monitorar leilões expirados e atualizá-los para fechados.
    * Define o intervalo de checagem usando o time.Tick.
-3. Foi criado um teste em `internal/infra/database/auction/create_auction_test.go` para verificar se o leilão é fechado automaticamente após o tempo definido.
+3. O arquivo `internal/infra/database/bid/create_bid.go` foi modificado para verificar se o leilão está fechado antes de aceitar um lance. Se o leilão estiver fechado, a função retorna sem inserir o lance no banco de dados. Isso garante que lances não sejam aceitos para leilões que já foram fechados.
+4. Foi criado um teste em `internal/infra/database/auction/create_auction_test.go` para verificar se o leilão é fechado automaticamente após o tempo definido.
 
 ## Pré-requisitos
 
