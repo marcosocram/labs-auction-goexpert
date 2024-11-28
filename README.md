@@ -47,4 +47,103 @@ Este projeto é um sistema de leilão desenvolvido em Go. Ele permite criar leil
     ```bash
     go test ./...
     ```
-   
+### Explicando o teste:
+
+O código fornecido é um teste unitário para a função `CreateAuction` no arquivo `create_auction_test.go`. Ele utiliza a biblioteca `mtest` do MongoDB para criar um ambiente de teste mockado. O objetivo do teste é verificar se a função `CreateAuction` está funcionando corretamente, incluindo a criação de um leilão e a verificação de seu status após um determinado período.
+
+Primeiramente, o teste define uma estrutura de leilão (`auctionEntity`) com atributos como `Id`, `ProductName`, `Category`, `Description`, `Condition`, `Status` e `Timestamp`:
+
+```go
+auctionEntity := &auction_entity.Auction{
+    Id:          "1",
+    ProductName: "Leilão Teste",
+    Category:    "Categoria Teste",
+    Description: "Descrição Teste",
+    Condition:   auction_entity.New,
+    Status:      auction_entity.Active,
+    Timestamp:   time.Now(),
+}
+```
+
+Em seguida, o teste configura o ambiente de teste mockado utilizando `mtest.New` e define as respostas mockadas para as operações de banco de dados:
+
+```go
+mt := mtest.New(t, mtest.NewOptions().ClientType(mtest.Mock))
+mt.AddMockResponses(mtest.CreateSuccessResponse())
+mt.AddMockResponses(mtest.CreateCursorResponse(1, "auctions.create", mtest.FirstBatch, bson.D{
+    {"_id", auctionEntity.Id},
+    {"product_name", auctionEntity.ProductName},
+    {"status", auctionEntity.Status},
+}))
+```
+
+O teste então cria uma instância do repositório de leilões (`repo`) e define a variável de ambiente `AUCTION_DURATION` para 2 segundos:
+
+```go
+db := mt.DB
+repo := NewAuctionRepository(db)
+err := os.Setenv("AUCTION_DURATION", "2s")
+if err != nil {
+    t.Fatalf("Erro ao configurar variável de ambiente: %v", err)
+}
+```
+
+A função `CreateAuction` é chamada para criar o leilão, e o teste verifica se o leilão foi inserido corretamente no banco de dados:
+
+```go
+errInternal := repo.CreateAuction(context.Background(), auctionEntity)
+if errInternal != nil {
+    t.Fatalf("Erro ao criar leilão: %v", errInternal)
+}
+var result AuctionEntityMongo
+err = repo.Collection.FindOne(context.Background(), bson.M{"_id": auctionEntity.Id}).Decode(&result)
+if err != nil {
+    t.Fatalf("Erro ao buscar leilão: %v", err)
+}
+assert.Equal(t, auctionEntity.ProductName, result.ProductName)
+```
+
+O teste então verifica se o leilão foi fechado automaticamente após o tempo de expiração definido. Dependendo da duração configurada, ele adiciona respostas mockadas apropriadas e espera pelo tempo necessário antes de verificar o status do leilão:
+
+```go
+auctionDuration := os.Getenv("AUCTION_DURATION")
+duration, err := time.ParseDuration(auctionDuration)
+if err != nil {
+    duration = time.Minute * 5
+}
+if duration < timeSleep {
+    mt.AddMockResponses(bson.D{
+        {"ok", 1},
+        {"nModified", 1},
+    })
+    time.Sleep(timeSleep)
+    mt.AddMockResponses(mtest.CreateCursorResponse(2, "auctions.update", mtest.FirstBatch, bson.D{
+        {"_id", auctionEntity.Id},
+        {"product_name", auctionEntity.ProductName},
+        {"status", auction_entity.Closed},
+    }))
+} else {
+    mt.AddMockResponses(mtest.CreateCursorResponse(2, "auctions.update", mtest.FirstBatch, bson.D{
+        {"_id", auctionEntity.Id},
+        {"product_name", auctionEntity.ProductName},
+        {"status", auctionEntity.Status},
+    }))
+    time.Sleep(timeSleep)
+    mt.AddMockResponses(bson.D{
+        {"ok", 1},
+        {"nModified", 0},
+    })
+}
+```
+
+Finalmente, o teste verifica se o leilão foi fechado automaticamente após o tempo de expiração:
+
+```go
+err = repo.Collection.FindOne(context.Background(), bson.M{"_id": auctionEntity.Id}).Decode(&result)
+if err != nil {
+    t.Fatalf("Erro ao buscar leilão: %v", err)
+}
+assert.Equal(t, auction_entity.Closed, result.Status)
+```
+
+Este teste cobre o caminho feliz de criação de um leilão e verifica se ele é fechado automaticamente após o tempo de expiração configurado.
