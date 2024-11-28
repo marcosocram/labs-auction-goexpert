@@ -76,7 +76,7 @@ func (ar *AuctionRepository) startAuctionExpiryCheck(ctx context.Context, auctio
 		// Fechar o leilão se o tempo expirou
 		_, err := ar.Collection.UpdateOne(ctx, bson.M{"_id": auctionID}, bson.M{"$set": bson.M{"status": auction_entity.Closed}})
 		if err != nil {
-			log.Printf("Erro ao fechar o leilão %d: %v", auctionID, err)
+			log.Printf("Erro ao fechar o leilão %s: %v", auctionID, err)
 		}
 	}()
 }
